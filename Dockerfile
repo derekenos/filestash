@@ -1,8 +1,7 @@
 # STEP1: CLONE THE CODE
 FROM alpine:latest as builder_prepare
 WORKDIR /home/
-RUN apk add git && \
-    git clone --depth 1 https://github.com/mickael-kerjean/filestash
+COPY . filestash/
 
 # STEP2: BUILD THE FRONTEND
 FROM node:18-alpine AS builder_frontend

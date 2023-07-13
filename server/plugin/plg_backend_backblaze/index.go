@@ -71,7 +71,7 @@ func (this Backblaze) Init(params map[string]string, app *App) (IBackend, error)
 		"POST",
 		this.ApiUrl+"/b2api/v2/b2_list_buckets",
 		strings.NewReader(fmt.Sprintf(
-			`{"accountId":"%s"}`,
+			`{"accountId": "%s", "bucketTypes": ["allPublic"]}`,
 			this.AccountId,
 		)),
 		nil,

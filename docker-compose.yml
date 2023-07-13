@@ -1,9 +1,12 @@
 version: '2'
 services:
   app:
+    build: .
+    image: filestash
     container_name: filestash
-    image: machines/filestash
     restart: always
+    volumes:
+    - ./state:/app/data/state
     environment:
     - APPLICATION_URL=
     - GDRIVE_CLIENT_ID=<gdrive_client>
