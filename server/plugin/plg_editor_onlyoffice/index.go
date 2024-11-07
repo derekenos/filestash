@@ -26,7 +26,12 @@ var (
 	onlyoffice_cache *cache.Cache
 	plugin_enable    func() bool
 	server_url       func() string
+	can_chat		 func() bool
+	can_copy		 func() bool
+	can_comment		 func() bool
 	can_download     func() bool
+	can_edit		 func() bool
+	can_print		 func() bool
 )
 
 type onlyOfficeCacheData struct {
@@ -45,8 +50,8 @@ func init() {
 			}
 			f.Name = "enable"
 			f.Type = "enable"
-			f.Target = []string{"onlyoffice_server", "onlyoffice_can_download"}
-			f.Description = "Enable/Disable the office suite to manage word, excel and powerpoint documents. This setting requires a restart to comes into effect"
+			f.Target = []string{"onlyoffice_server", "onlyoffice_can_chat", "onlyoffice_can_copy", "onlyoffice_can_comment", "onlyoffice_can_download", "onlyoffice_can_edit", "onlyoffice_can_print"}
+			f.Description = "Enable/Disable the office suite and options to manage word, excel and powerpoint documents."
 			f.Default = false
 			if u := os.Getenv("ONLYOFFICE_URL"); u != "" {
 				f.Default = true
@@ -54,6 +59,7 @@ func init() {
 			return f
 		}).Bool()
 	}
+
 	server_url = func() string {
 		return Config.Get("features.office.onlyoffice_server").Schema(func(f *FormElement) *FormElement {
 			if f == nil {
@@ -72,6 +78,63 @@ func init() {
 			return f
 		}).String()
 	}
+
+	can_chat = func() bool {
+		return Config.Get("features.office.can_chat").Schema(func(f *FormElement) *FormElement {
+			if f == nil {
+				f = &FormElement{}
+			}
+			f.Id = "onlyoffice_can_chat"
+			f.Name = "can_chat"
+			f.Type = "boolean"
+			f.Description = "Enable/Disable chat in onlyoffice"
+			f.Default = true
+			return f
+		}).Bool()
+	}
+	
+	can_copy = func() bool {
+		return Config.Get("features.office.can_copy").Schema(func(f *FormElement) *FormElement {
+			if f == nil {
+				f = &FormElement{}
+			}
+			f.Id = "onlyoffice_can_copy"
+			f.Name = "can_copy"
+			f.Type = "boolean"
+			f.Description = "Enable/Disable copy text in onlyoffice"
+			f.Default = true
+			return f
+		}).Bool()
+	}
+	
+	can_comment = func() bool {
+		return Config.Get("features.office.can_comment").Schema(func(f *FormElement) *FormElement {
+			if f == nil {
+				f = &FormElement{}
+			}
+			f.Id = "onlyoffice_can_comment"
+			f.Name = "can_comment"
+			f.Type = "boolean"
+			f.Description = "Enable/Disable comments in onlyoffice"
+			f.Default = true
+			return f
+		}).Bool()
+	}
+	
+	can_edit = func() bool {
+		return Config.Get("features.office.can_edit").Schema(func(f *FormElement) *FormElement {
+			if f == nil {
+				f = &FormElement{}
+			}
+			f.Id = "onlyoffice_can_edit"
+			f.Name = "can_edit"
+			f.Type = "boolean"
+			f.Description = "Enable/Disable editing in onlyoffice"
+			f.Default = true
+			return f
+		}).Bool()
+	}
+	
 	can_download = func() bool {
 		return Config.Get("features.office.can_download").Schema(func(f *FormElement) *FormElement {
 			if f == nil {
@@ -85,39 +148,61 @@ func init() {
 			return f
 		}).Bool()
 	}
+	can_print = func() bool {
+		return Config.Get("features.office.can_print").Schema(func(f *FormElement) *FormElement {
+			if f == nil {
+				f = &FormElement{}
+			}
+			f.Id = "onlyoffice_can_print"
+			f.Name = "can_print"
+			f.Type = "boolean"
+			f.Description = "Enable/Disable printing in onlyoffice"
+			f.Default = true
+			return f
+		}).Bool()
+	}
 
 	Hooks.Register.Onload(func() {
-		if plugin_enable() == false {
-			return
-		}
-		Hooks.Register.HttpEndpoint(func(r *mux.Router, app *App) error {
-			oods := r.PathPrefix("/onlyoffice").Subrouter()
-			oods.PathPrefix("/static/").HandlerFunc(StaticHandler).Methods("GET", "POST")
-			oods.HandleFunc("/event", OnlyOfficeEventHandler).Methods("POST")
-			oods.HandleFunc("/content", FetchContentHandler).Methods("GET")
+		plugin_enable()
+		server_url()
+		can_chat()
+		can_copy()
+		can_comment()
+		can_download()
+		can_edit()
+		can_print()
+	})
 
-			r.HandleFunc(
-				COOKIE_PATH+"onlyoffice/iframe",
-				NewMiddlewareChain(
-					IframeContentHandler,
-					[]Middleware{SessionStart, LoggedInOnly},
-					*app,
-				),
-			).Methods("GET")
-			return nil
-		})
-		Hooks.Register.XDGOpen(`
+	Hooks.Register.HttpEndpoint(func(r *mux.Router, app *App) error {
+		oods := r.PathPrefix("/onlyoffice").Subrouter()
+		oods.PathPrefix("/static/").HandlerFunc(StaticHandler).Methods("GET", "POST")
+		oods.HandleFunc("/event", OnlyOfficeEventHandler).Methods("POST")
+		oods.HandleFunc("/content", FetchContentHandler).Methods("GET")
+
+		r.HandleFunc(
+			COOKIE_PATH+"onlyoffice/iframe",
+			NewMiddlewareChain(
+				IframeContentHandler,
+				[]Middleware{SessionStart, LoggedInOnly},
+				*app,
+			),
+		).Methods("GET")
+		return nil
+	})
+	Hooks.Register.XDGOpen(`
         if(mime === "application/word" || mime === "application/msword" ||
            mime === "application/vnd.oasis.opendocument.text" || mime === "application/vnd.oasis.opendocument.spreadsheet" ||
            mime === "application/excel" || mime === "application/vnd.ms-excel" || mime === "application/powerpoint" ||
            mime === "application/vnd.ms-powerpoint" || mime === "application/vnd.oasis.opendocument.presentation" ) {
               return ["appframe", {"endpoint": "/api/onlyoffice/iframe"}];
            }
-        `)
-	})
+   `)
 }
 
 func StaticHandler(res http.ResponseWriter, req *http.Request) {
+	if plugin_enable() == false {
+		return
+	}
 	req.URL.Path = strings.TrimPrefix(req.URL.Path, "/onlyoffice/static")
 	u, err := url.Parse(server_url())
 	if err != nil {
@@ -166,6 +251,9 @@ func StaticHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
+	if plugin_enable() == false {
+		return
+	}
 	if model.CanRead(ctx) == false {
 		SendErrorResult(res, ErrPermissionDenied)
 		return
@@ -196,7 +284,7 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	userId = GenerateID(ctx)
+	userId = GenerateID(ctx.Session)
 	f, err := ctx.Backend.Cat(path)
 	if err != nil {
 		SendErrorResult(res, err)
@@ -339,7 +427,13 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
                   "fileType": "%s",
                   "key": "%s",
                   "permissions": {
-                      "download": %s
+				  	  "chat": %s,
+		 			  "copy": %s,
+					  "comment": %s,
+                      "download": %s,
+					  "edit": %s,
+	   				  "print": %s
+					  
                   }
               },
               "editorConfig": {
@@ -373,7 +467,37 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 		filetype,
 		key,
 		func() string {
+			if can_chat() {
+				return "true"
+			}
+			return "false"
+		}(),
+		func() string {
+			if can_copy() {
+				return "true"
+			}
+			return "false"
+		}(),
+		func() string {
+			if can_comment() {
+				return "true"
+			}
+			return "false"
+		}(),
+		func() string {
 			if can_download() {
+				return "true"
+			}
+			return "false"
+		}(),
+		func() string {
+			if can_edit() {
+				return "true"
+			}
+			return "false"
+		}(),
+		func() string {
+			if can_print() {
 				return "true"
 			}
 			return "false"
@@ -386,6 +510,9 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 }
 
 func FetchContentHandler(res http.ResponseWriter, req *http.Request) {
+	if plugin_enable() == false {
+		return
+	}
 	var key string
 	if key = req.URL.Query().Get("key"); key == "" {
 		SendErrorResult(res, NewError("unspecified key", http.StatusBadRequest))
@@ -439,6 +566,9 @@ type onlyOfficeEventObject struct {
 }
 
 func OnlyOfficeEventHandler(res http.ResponseWriter, req *http.Request) {
+	if plugin_enable() == false {
+		return
+	}
 	event := onlyOfficeEventObject{}
 	if err := json.NewDecoder(req.Body).Decode(&event); err != nil {
 		SendErrorResult(res, err)

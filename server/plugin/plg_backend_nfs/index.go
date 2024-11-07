@@ -1,12 +1,10 @@
 package plg_backend_nfs
 
 import (
-	"bufio"
 	"context"
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
@@ -17,11 +15,6 @@ import (
 	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
-const (
-	DEFAULT_UID = 1000
-	DEFAULT_GID = 1000
-)
-
 type NfsShare struct {
 	mount *nfs.Mount
 	v     *nfs.Target
@@ -29,35 +22,46 @@ type NfsShare struct {
 	ctx   context.Context
 	uid   uint32
 	gid   uint32
+	gids  []uint32
 }
 
 func init() {
 	Backend.Register("nfs", NfsShare{})
 	util.DefaultLogger.SetDebug(false)
-	cacheForEtc = NewAppCache(120, 60)
 }
 
 func (this NfsShare) Init(params map[string]string, app *App) (IBackend, error) {
 	if params["hostname"] == "" {
 		return nil, ErrNotFound
 	}
-
 	if params["machine_name"] == "" {
-		params["machine_name"] = "filestash"
+		params["machine_name"] = "Filestash"
 	}
+	params["username"] = params["uid"]
+	uid, gid, gids := ExtractUserInfo(params["uid"], params["gid"], params["gids"])
+	Log.Debug("plg_backend_nfs::userInfo user=%s uid=%d gid=%d gids=%+v", params["uid"], uid, gid, gids)
 
-	uid := getUid(params["uid"])
-	gid := getGid(params["gid"])
-	auth := rpc.NewAuthUnix(params["machine_name"], uid, gid).Auth()
 	mount, err := nfs.DialMount(params["hostname"])
 	if err != nil {
 		return nil, err
 	}
-	v, err := mount.Mount(params["target"], auth)
+	auth := NewAuthUnix(params["machine_name"], uid, gid, gids, params["gids"])
+	v, err := mount.Mount(
+		params["target"],
+		auth,
+	)
 	if err != nil {
 		return nil, err
 	}
-	return NfsShare{mount, v, auth, app.Context, uid, gid}, nil
+	return NfsShare{mount, v, auth, app.Context, uid, gid, toGids(gids)}, nil
+}
+
+func toGids(gids []GroupLabel) []uint32 {
+	g := make([]uint32, len(gids))
+	for i, _ := range gids {
+		g[i] = gids[i].Id
+	}
+	return g
 }
 
 func (this NfsShare) LoginForm() Form {
@@ -82,31 +86,37 @@ func (this NfsShare) LoginForm() Form {
 				Name:        "advanced",
 				Type:        "enable",
 				Placeholder: "Advanced",
-				Target:      []string{"nfs_uid", "nfs_gid", "nfs_machinename", "nfs_chroot"},
+				Target:      []string{"nfs_uid", "nfs_gid", "nfs_gids", "nfs_machinename", "nfs_chroot"},
 			},
 			FormElement{
 				Id:          "nfs_uid",
 				Name:        "uid",
 				Type:        "text",
-				Placeholder: "uid",
+				Placeholder: "UID",
 			},
 			FormElement{
 				Id:          "nfs_gid",
 				Name:        "gid",
 				Type:        "text",
-				Placeholder: "gid",
+				Placeholder: "GID",
+			},
+			FormElement{
+				Id:          "nfs_gids",
+				Name:        "gids",
+				Type:        "text",
+				Placeholder: "Auxiliary GIDs",
 			},
 			FormElement{
 				Id:          "nfs_machinename",
 				Name:        "machine_name",
 				Type:        "text",
-				Placeholder: "machine name",
+				Placeholder: "Machine Name",
 			},
 			FormElement{
 				Id:          "nfs_chroot",
 				Name:        "path",
 				Type:        "text",
-				Placeholder: "chroot",
+				Placeholder: "Chroot",
 			},
 		},
 	}
@@ -124,9 +134,11 @@ func (this NfsShare) Meta(path string) Metadata {
 		return Metadata{}
 	}
 
-	if fattr == nil { // happen on the root of the share
+	if fattr == nil { // happen at the root
 		return Metadata{}
-	} else if fattr.UID == this.uid || fattr.GID == this.gid {
+	} else if isIn(fattr.UID, []uint32{this.uid}) ||
+		isIn(fattr.GID, []uint32{this.gid}) ||
+		isIn(fattr.GID, this.gids) {
 		return Metadata{}
 	}
 	return Metadata{
@@ -139,6 +151,15 @@ func (this NfsShare) Meta(path string) Metadata {
 		CanDelete:          NewBool(false),
 		CanShare:           NewBool(false),
 	}
+}
+
+func isIn(id uint32, list []uint32) bool {
+	for i, _ := range list {
+		if list[i] == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (this NfsShare) Ls(path string) ([]os.FileInfo, error) {
@@ -155,6 +176,20 @@ func (this NfsShare) Ls(path string) ([]os.FileInfo, error) {
 		} else if dir.Attr.Attr.Type != 1 && dir.Attr.Attr.Type != 2 {
 			// don't show anything else than file and folder
 			continue
+		}
+		if len(this.gids) > 0 { // filter out what users don't have access
+			hasAccess := false
+			for _, gid := range this.gids {
+				if gid == dir.Attr.Attr.GID {
+					hasAccess = true
+				}
+			}
+			if this.gid == dir.Attr.Attr.GID {
+				hasAccess = true
+			}
+			if hasAccess == false {
+				continue
+			}
 		}
 		files = append(files, File{
 			FName: dir.FileName,
@@ -270,62 +305,4 @@ func (this NfsShare) Close() {
 
 func (this NfsShare) nfsPath(path string) string {
 	return strings.TrimSuffix(path, "/")
-}
-
-func getUid(hint string) uint32 {
-	if hint == "" {
-		return DEFAULT_UID
-	} else if _uid, err := strconv.Atoi(hint); err == nil {
-		return uint32(_uid)
-	} else if uid, _, err := extractFromEtcPasswd(hint); err == nil {
-		return uid
-	}
-	return DEFAULT_UID
-}
-func getGid(hint string) uint32 {
-	if hint == "" {
-		return DEFAULT_UID
-	} else if _gid, err := strconv.Atoi(hint); err == nil {
-		return uint32(_gid)
-	} else if _, gid, err := extractFromEtcPasswd(hint); err == nil {
-		return gid
-	}
-	return DEFAULT_GID
-}
-
-var cacheForEtc AppCache
-
-func extractFromEtcPasswd(username string) (uint32, uint32, error) {
-	if v := cacheForEtc.Get(map[string]string{"username": username}); v != nil {
-		inCache := v.([]int)
-		return uint32(inCache[0]), uint32(inCache[1]), nil
-	}
-	f, err := os.OpenFile("/etc/passwd", os.O_RDONLY, os.ModePerm)
-	if err != nil {
-		return DEFAULT_UID, DEFAULT_GID, err
-	}
-	defer f.Close()
-	lines := bufio.NewReader(f)
-	for {
-		line, _, err := lines.ReadLine()
-		if err != nil {
-			break
-		}
-		s := strings.Split(string(line), ":")
-		if len(s) != 7 {
-			continue
-		} else if username == s[0] {
-			u, err := strconv.Atoi(s[2])
-			if err != nil {
-				continue
-			}
-			g, err := strconv.Atoi(s[3])
-			if err != nil {
-				continue
-			}
-			cacheForEtc.Set(map[string]string{"username": username}, []int{u, g})
-			return uint32(u), uint32(g), nil
-		}
-	}
-	return DEFAULT_UID, DEFAULT_GID, ErrNotFound
 }

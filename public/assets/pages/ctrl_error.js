@@ -1,21 +1,30 @@
 import { createElement, createRender } from "../lib/skeleton/index.js";
+import { toHref, fromHref } from "../lib/skeleton/router.js";
+import { forwardURLParams } from "../lib/path.js";
 import rxjs, { effect, applyMutation } from "../lib/rx.js";
 import { qs } from "../lib/dom.js";
-import t from "../lib/locales.js";
+import t from "../locales/index.js";
 
 import { AjaxError, ApplicationError } from "../lib/error.js";
 
 import "../components/icon.js";
 
+const strToHTML = (str) => str
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll(" ", "&nbsp;");
+
 export default function(render = createRender(qs(document.body, "[role=\"main\"]"))) {
-    return async function(err) {
+    return function(err) {
         const [msg, trace] = processError(err);
+
+        const link = forwardURLParams(calculateBacklink(fromHref(window.location.pathname)), ["share"]);
         const $page = createElement(`
             <div>
                 <style>${css}</style>
-                <a href="/" class="backnav">
+                <a href="${link}" class="backnav">
                     <component-icon name="arrow_left"></component-icon>
-                    home
+                    ${t("home")}
                 </a>
                 <div class="component_container">
                     <div class="error-page">
@@ -23,8 +32,8 @@ export default function(render = createRender(qs(document.body, "[role=\"main\"]
                         <h2>${t(msg)}</h2>
                         <p>
                             <button class="light" data-bind="details">${t("More details")}</button>
-                            <button class="primary" data-bind="refresh">${t("Refresh")}</button>
-                            <pre class="hidden"><code>${trace}</code></pre>
+                            <button class="primary" data-bind="refresh">${t("Reload")}</button>
+                            <pre class="hidden"><code>${strToHTML(trace)}</code></pre>
                         </p>
                     </div>
                 </div>
@@ -46,7 +55,7 @@ export default function(render = createRender(qs(document.body, "[role=\"main\"]
             rxjs.tap(() => location.reload())
         ));
 
-        return rxjs.of(err);
+        return rxjs.EMPTY;
     };
 }
 
@@ -91,14 +100,22 @@ const css = `
     font-weight: normal;
     font-weight: 100;
 }
+.error-page button {
+    padding-left: 10px;
+    padding-right: 10px;
+    line-height: 1.2rem;
+    text-transform: capitalize;
+}
 .error-page code {
     margin-top: 5px;
     display: block;
     padding: 10px;
     overflow-x: auto;
+    overflow-y: auto;
     background: #e2e2e2;
     color: var(--dark);
     border-radius: 3px;
+    max-height: 350px;
 }
 .error-page pre {
     margin: 0;
@@ -112,7 +129,6 @@ const css = `
 }
 
 .backnav {
-  font-weight: 100;
   display: inline-block;
   padding: 10px 5px;
 }
@@ -122,3 +138,20 @@ const css = `
     vertical-align: middle;
 }
 `;
+
+function calculateBacklink(pathname = "") {
+    let url = "/";
+    const listPath = pathname.replace(new RegExp("/$"), "").split("/");
+    switch (listPath[1]) {
+    case "view": // in view mode, navigate to current folder
+        listPath[1] = "files";
+        listPath.pop();
+        url = listPath.join("/") + "/";
+        break;
+    case "files": // in file browser mode, navigate to parent folder
+        listPath.pop();
+        url = listPath.join("/") + "/";
+        break;
+    }
+    return toHref(url === "/files/" ? "/" : url);
+}

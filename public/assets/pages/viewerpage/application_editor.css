@@ -1,24 +1,23 @@
+/* https://github.com/codemirror/codemirror5/issues/4895 */
 .component_editor {
-    display: flex;
-    flex-grow: 1;
-    min-height: 0;
-    width: 100%;
-}
-.component_editor > div {
-    width: 100%;
     position: relative;
+    flex-grow: 1;
 }
-.component_editor > div #editor {
-    width: 100%;
+.component_editor .CodeMirror {
     position: absolute;
-    left: 0;
     top: 0;
     bottom: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+}
+
+/* UX Integration */
+.CodeMirror-scroll {
+    -webkit-overflow-scrolling: touch;
 }
 
 .CodeMirror {
-    width: 100%;
-    height: 100%;
     color: #3b4045;
     background: var(--bg-color);
 }
@@ -26,10 +25,6 @@
 .CodeMirror-sizer > div {
     padding-top: 4px;
     padding-bottom: 5px;
-}
-
-.CodeMirror-scroll {
-    -webkit-overflow-scrolling: touch;
 }
 
 .CodeMirror-foldmarker {
@@ -91,7 +86,7 @@
 /* Font stuff */
 .CodeMirror {
     font-size: 16px;
-    font-family: 'Source Code Pro', monospace;
+    font-family: "Source Code Pro", monospace;
 }
 
 .cm-s-default .cm-header {
@@ -276,6 +271,9 @@ pre.CodeMirror-line {
 .cm-s-default .cm-quote {
     color: var(--dark);
 }
+.cm-s-default .cm-invalidchar {
+    color: var(--error);
+}
 
 .CodeMirror-gutters {
     box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.1);
@@ -283,8 +281,8 @@ pre.CodeMirror-line {
 
 .CodeMirror-foldmarker {
     padding-left: 5px;
-    color: var(--color);
-    text-shadow: 1px 1px 10px var(--color);
+    color: var(--color)!important;
+    text-shadow: 1px 1px 10px var(--color)!important;
 }
 
 span.CodeMirror-matchingbracket,
@@ -300,7 +298,7 @@ span.CodeMirror-matchingtag {
 
 /* DAR MODE THEME */
 .dark-mode .CodeMirror {
-    background: #242424;
+    background: #232426;
 }
 .dark-mode .CodeMirror, .dark-mode .CodeMirror .CodeMirror-linenumber, .dark-mode .CodeMirror .cm-variable-2, .dark-mode .CodeMirror .cm-variable-3, .dark-mode .CodeMirror .cm-number, .dark-mode .CodeMirror .cm-quote {
     color: #f6f3e8;

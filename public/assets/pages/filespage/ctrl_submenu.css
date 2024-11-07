@@ -4,13 +4,13 @@
     position: sticky;
     top: 0;
     z-index: 3;
-    padding: 5px 0;
+    padding: 4px 0;
     backdrop-filter: blur(20px) saturate(2);
     transition: 0.2s ease box-shadow;
 }
 .scrolling [is="component_submenu"] {
     box-shadow: 0 5px 10px rgba(100,100,100,.05);
-    background: rgba(245,245,245,0.75);
+    background: rgba(245,245,245,0.9);
 }
 [is="component_submenu"] .component_submenu {
     display: flex;
@@ -25,17 +25,30 @@
     color: var(--light);
     letter-spacing: 0;
     border-radius: 5px;
+    line-height: 15px;
 }
 [is="component_submenu"] .component_submenu .action button img {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     margin-left: -3px;
     margin-right: -3px;
 }
-[is="component_submenu"] .component_submenu .action.right:hover{
+.touch-yes [is="component_submenu"] .component_submenu .action button img {
+    width: 16px;
+    height: 16px;
+}
+[is="component_submenu"] .component_submenu .action.left {
+    margin-right: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    display: flex;
+}
+.touch-no [is="component_submenu"] .component_submenu .action.right:hover,
+[is="component_submenu"] .component_submenu .action.right.hover{
     background: var(--border);
 }
-[is="component_submenu"] .component_submenu .action button:hover {
+.touch-no [is="component_submenu"] .component_submenu .action button:hover {
     filter: brightness(0.9);
     background: var(--border);
 }
@@ -44,8 +57,17 @@
     background: var(--border);
 }
 [is="component_submenu"] .component_submenu .action.right {
-    float: right;
     border-radius: 5px;
+    white-space: nowrap;
+}
+[is="component_submenu"] .component_submenu .action.right button[data-bind="clear"] {
+    display: flex;
+    align-items: center;
+    background: var(--border);
+    font-weight: bold;
+}
+[is="component_submenu"] .component_submenu .action.right button[data-bind="clear"] img {
+    padding-left: 2px;
 }
 
 /* dark mode */

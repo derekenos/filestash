@@ -9,13 +9,13 @@ import (
 )
 
 func init() {
-	Backend.Register("local", Local{})
+	Backend.Register("local", &Local{})
 }
 
 type Local struct{}
 
 func (this Local) Init(params map[string]string, app *App) (IBackend, error) {
-	backend := Local{}
+	backend := &Local{}
 	if params["password"] == Config.Get("general.secret_key").String() {
 		return backend, nil
 	} else if err := bcrypt.CompareHashAndPassword(
@@ -51,12 +51,19 @@ func (this Local) LoginForm() Form {
 
 func (this Local) Home() (string, error) {
 	if home, err := os.UserHomeDir(); err == nil {
-		return home, nil
+		return ensurePath(home), nil
 	}
 	if currentUser, err := user.Current(); err == nil && currentUser.HomeDir != "" {
-		return currentUser.HomeDir, nil
+		return ensurePath(currentUser.HomeDir), nil
 	}
 	return "/", nil
+}
+
+func ensurePath(path string) string {
+	if _, err := os.Stat(path); err != nil {
+		return "/"
+	}
+	return path
 }
 
 func (this Local) Ls(path string) ([]os.FileInfo, error) {

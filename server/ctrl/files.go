@@ -84,17 +84,35 @@ func FileLs(ctx *App, res http.ResponseWriter, req *http.Request) {
 		SendErrorResult(res, err)
 		return
 	}
+	var perms Metadata = Metadata{}
+	if obj, ok := ctx.Backend.(interface{ Meta(path string) Metadata }); ok {
+		perms = obj.Meta(path)
+	}
 	for _, auth := range Hooks.Get.AuthorisationMiddleware() {
 		if err = auth.Ls(ctx, path); err != nil {
 			Log.Info("ls::auth '%s'", err.Error())
 			SendErrorResult(res, ErrNotAuthorized)
 			return
 		}
-	}
-
-	var perms Metadata = Metadata{}
-	if obj, ok := ctx.Backend.(interface{ Meta(path string) Metadata }); ok {
-		perms = obj.Meta(path)
+		ctx.Context = context.WithValue(ctx.Context, "AUDIT", false)
+		if err = auth.Mkdir(ctx, path); err != nil {
+			perms.CanCreateDirectory = NewBool(false)
+		}
+		if err = auth.Touch(ctx, path); err != nil {
+			perms.CanCreateFile = NewBool(false)
+		}
+		if err = auth.Mv(ctx, path, path); err != nil {
+			perms.CanRename = NewBool(false)
+		}
+		if err = auth.Save(ctx, path); err != nil {
+			perms.CanUpload = NewBool(false)
+		}
+		if err = auth.Rm(ctx, path); err != nil {
+			perms.CanDelete = NewBool(false)
+		}
+		if err = auth.Cat(ctx, path); err != nil {
+			perms.CanSee = NewBool(false)
+		}
 	}
 	if model.CanEdit(ctx) == false {
 		perms.CanCreateFile = NewBool(false)
@@ -125,16 +143,20 @@ func FileLs(ctx *App, res http.ResponseWriter, req *http.Request) {
 	etagger.Write([]byte(path + strconv.Itoa(len(entries))))
 	for i := 0; i < len(entries); i++ {
 		name := entries[i].Name()
-		modTime := entries[i].ModTime().UnixNano() / int64(time.Millisecond)
-
-		if i < 200 { // etag is generated from a few values to avoid large memory usage
-			etagger.Write([]byte(name + strconv.Itoa(int(modTime))))
-		}
-
 		files[i] = FileInfo{
 			Name: name,
 			Size: entries[i].Size(),
-			Time: modTime,
+			Time: func(mt time.Time) (modTime int64) {
+				if mt.IsZero() == false {
+					modTime = mt.UnixNano() / int64(time.Millisecond)
+
+				}
+				if i < 200 { // etag is generated from a few values to avoid large memory usage
+					etagger.Write([]byte(name + strconv.Itoa(int(modTime))))
+				}
+
+				return modTime
+			}(entries[i].ModTime()),
 			Type: func(mode os.FileMode) string {
 				if mode.IsRegular() {
 					return "file"

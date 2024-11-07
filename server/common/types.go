@@ -91,7 +91,8 @@ func (f File) Mode() os.FileMode {
 }
 func (f File) ModTime() time.Time {
 	if f.FTime == 0 {
-		return time.Now()
+		t := new(time.Time)
+		return *t
 	}
 	return time.Unix(f.FTime, 0)
 }
@@ -203,3 +204,7 @@ func (s *Share) UnmarshallJSON(b []byte) error {
 	}
 	return nil
 }
+
+type HandlerFunc func(*App, http.ResponseWriter, *http.Request)
+
+type Middleware func(HandlerFunc) HandlerFunc

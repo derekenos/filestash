@@ -1,10 +1,22 @@
+import { toHref } from "../lib/skeleton/router.js";
 import { animate, slideYOut, slideYIn, opacityOut } from "../lib/animate.js";
+import { forwardURLParams } from "../lib/path.js";
+import assert from "../lib/assert.js";
 import { loadCSS } from "../helpers/loader.js";
 
-class ComponentBreadcrumb extends window.HTMLDivElement {
+import { extractPath, isDir, isNativeFileUpload } from "../pages/filespage/helper.js";
+import { mv as mv$ } from "../pages/filespage/model_files.js";
+import { mv as mvVL, withVirtualLayer } from "../pages/filespage/model_virtual_layer.js";
+
+const mv = (from, to) => withVirtualLayer(
+    mv$(from, to),
+    mvVL(from, to),
+);
+
+class ComponentBreadcrumb extends HTMLElement {
     constructor() {
         super();
-        if (new window.URL(location.href).searchParams.get("nav") === "false") {
+        if (new URL(location.href).searchParams.get("nav") === "false") {
             this.disabled = true;
             return;
         }
@@ -53,16 +65,15 @@ class ComponentBreadcrumb extends window.HTMLDivElement {
             const tasks = [];
             for (let i=0; i<nToAnimate; i++) {
                 const n = previousChunks.length - i - 1;
-                const $chunk = this.querySelector(`.component_path-element.n${n}`);
-                if (!$chunk) throw new Error("component::breadcrumb.js - assertion failed - empty element");
+                const $chunk = assert.type(this.querySelector(`.component_path-element.n${n}`), HTMLElement);
                 tasks.push(animate($chunk, { time: 100, keyframes: slideYOut(-10) }));
             }
             await Promise.all(tasks);
         }
 
         // STEP2: setup the actual content
-        this.querySelector(`[data-bind="path"]`).innerHTML = pathChunks.map((chunk, idx) => {
-            const label = idx === 0 ? "Filestash" : chunk;
+        assert.type(this.querySelector(`[data-bind="path"]`), HTMLElement).innerHTML = pathChunks.map((chunk, idx) => {
+            const label = idx === 0 ? (window.CONFIG["name"] || "Filestash") : chunk;
             const link = pathChunks.slice(0, idx + 1).join("/") + "/";
             const limitSize = (word, highlight = false) => {
                 if (highlight === true && word.length > 30) {
@@ -100,19 +111,18 @@ class ComponentBreadcrumb extends window.HTMLDivElement {
             })();
 
             return `
-                <div class="component_path-element n${idx}">
+                <div class="component_path-element n${idx}" data-path="${pathChunks.slice(0, idx+1).join("/") + "/"}">
                     <div class="li component_path-element-wrapper">
-                        <div>
-                            <a class="label" href="/files${link}" data-link>
-                                ${tmpl}
-                            </a>
-                            <div class="component_separator">
-                                <img alt="path_separator" width="16" height="16" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABEAAAARCAYAAAA7bUf6AAAA30lEQVQ4T63T7Q2CMBAG4OuVPdQNcAPdBCYwDdclCAQ3ACfRDXQDZQMHgNRcAoYApfWjv0jIPX3b3gn4wxJjI03TUAhRBkGwV0o9ffaYIEVRrJumuQHA3ReaILxzl+bCkNZ660ozi/QQIl4BoCKieAmyIlyU53lkjCld0CIyhIwxSmt9nEvkRLgoyzIuPggh4iRJqjHkhXTQAwBWUsqNUoq/38sL+TlJf7lf38ngdU5EFNme2adPFgGGrR2LiGcAqIko/LhjeXbatuVOraWUO58hnJ1iRKx8AetxXPHH/1+y62USursaSgAAAABJRU5ErkJggg==">
-                            </div>
+                        <a class="label" href="${forwardURLParams(toHref("/files") + link, ["share"])}" data-link>
+                            ${tmpl}
+                        </a>
+                        <div class="component_separator">
+                            <img alt="path_separator" width="16" height="16" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABEAAAARCAYAAAA7bUf6AAAA30lEQVQ4T63T7Q2CMBAG4OuVPdQNcAPdBCYwDdclCAQ3ACfRDXQDZQMHgNRcAoYApfWjv0jIPX3b3gn4wxJjI03TUAhRBkGwV0o9ffaYIEVRrJumuQHA3ReaILxzl+bCkNZ660ozi/QQIl4BoCKieAmyIlyU53lkjCld0CIyhIwxSmt9nEvkRLgoyzIuPggh4iRJqjHkhXTQAwBWUsqNUoq/38sL+TlJf7lf38ngdU5EFNme2adPFgGGrR2LiGcAqIko/LhjeXbatuVOraWUO58hnJ1iRKx8AetxXPHH/1+y62USursaSgAAAABJRU5ErkJggg==">
                         </div>
                     </div>
                 </div>`;
         }).join("");
+        this.setupDragDropTarget();
 
         // STEP3: entering animation for elements that got added in
         if (previous !== null && path.indexOf(previous) >= 0) {
@@ -120,8 +130,7 @@ class ComponentBreadcrumb extends window.HTMLDivElement {
             const nToAnimate = pathChunks.length - previousChunks.length;
             for (let i=0; i<nToAnimate; i++) {
                 const n = pathChunks.length - i - 1;
-                const $chunk = this.querySelector(`.component_path-element.n${n}`);
-                if (!$chunk) throw new Error("component::breadcrumb.js - assertion failed - empty element");
+                const $chunk = assert.type(this.querySelector(`.component_path-element.n${n}`), HTMLElement);
                 await animate($chunk, { time: 100, keyframes: slideYIn(-5) });
             }
         }
@@ -131,9 +140,8 @@ class ComponentBreadcrumb extends window.HTMLDivElement {
         let state = this.hasAttribute("indicator");
         if (state && this.getAttribute("indicator") !== "false") state = true;
 
-        const $indicator = this.querySelector(`[data-bind="path"]`)
-            .lastChild
-            .querySelector("span");
+        let $indicator = assert.type(this.querySelector(`[data-bind="path"]`), HTMLElement);
+        $indicator = assert.type($indicator.lastChild.querySelector("span"), HTMLElement);
 
         if (state) {
             $indicator.style.opacity = 1;
@@ -153,10 +161,35 @@ class ComponentBreadcrumb extends window.HTMLDivElement {
         }
     }
 
+    setupDragDropTarget() {
+        this.querySelectorAll("a.label").forEach(($elmnt) => {
+            const $folder = assert.type($elmnt, HTMLElement);
+            const $path = assert.truthy($folder.closest(".component_path-element"));
+            $folder.ondrop = async(e) => {
+                $path.classList.remove("highlight");
+                const from = e.dataTransfer.getData("path");
+                let to = $path.getAttribute("data-path");
+
+                const [, fromName] = extractPath(from);
+                to += fromName;
+                if (isDir(from)) to += "/";
+                await mv(from, to).toPromise();
+            };
+            $folder.ondragover = (e) => {
+                if (isNativeFileUpload(e)) return;
+                e.preventDefault();
+                $path.classList.add("highlight");
+            };
+            $folder.ondragleave = () => {
+                $path.classList.remove("highlight");
+            };
+        });
+    }
+
     __htmlLogout() {
         if (window.self !== window.top) return ""; // no logout button from an iframe
         return `
-            <a href="/logout" data-link>
+            <a href="${toHref("/logout")}" data-link>
                 <img class="component_icon" draggable="false" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0ODkuODg4IDQ4OS44ODgiIHN0eWxlPSJlbmFibGUtYmFja2dyb3VuZDpuZXcgMCAwIDQ4OS44ODggNDg5Ljg4ODsiPgogIDxwYXRoIGZpbGw9IiM2ZjZmNmYiIGQ9Ik0yNS4zODMsMjkwLjVjLTcuMi03Ny41LDI1LjktMTQ3LjcsODAuOC0xOTIuM2MyMS40LTE3LjQsNTMuNC0yLjUsNTMuNCwyNWwwLDBjMCwxMC4xLTQuOCwxOS40LTEyLjYsMjUuNyAgICBjLTM4LjksMzEuNy02Mi4zLDgxLjctNTYuNiwxMzYuOWM3LjQsNzEuOSw2NSwxMzAuMSwxMzYuOCwxMzguMWM5My43LDEwLjUsMTczLjMtNjIuOSwxNzMuMy0xNTQuNWMwLTQ4LjYtMjIuNS05Mi4xLTU3LjYtMTIwLjYgICAgYy03LjgtNi4zLTEyLjUtMTUuNi0xMi41LTI1LjZsMCwwYzAtMjcuMiwzMS41LTQyLjYsNTIuNy0yNS42YzUwLjIsNDAuNSw4Mi40LDEwMi40LDgyLjQsMTcxLjhjMCwxMjYuOS0xMDcuOCwyMjkuMi0yMzYuNywyMTkuOSAgICBDMTIyLjE4Myw0ODEuOCwzNS4yODMsMzk2LjksMjUuMzgzLDI5MC41eiBNMjQ0Ljg4MywwYy0xOCwwLTMyLjUsMTQuNi0zMi41LDMyLjV2MTQ5LjdjMCwxOCwxNC42LDMyLjUsMzIuNSwzMi41ICAgIHMzMi41LTE0LjYsMzIuNS0zMi41VjMyLjVDMjc3LjM4MywxNC42LDI2Mi44ODMsMCwyNDQuODgzLDB6IiAvPgo8L3N2Zz4K" alt="power">
             </a>
         `;
@@ -173,4 +206,4 @@ export function init() {
     return loadCSS(import.meta.url, "./breadcrumb.css");
 }
 
-customElements.define("component-breadcrumb", ComponentBreadcrumb, { extends: "div" });
+customElements.define("component-breadcrumb", ComponentBreadcrumb);

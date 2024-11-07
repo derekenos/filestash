@@ -60,6 +60,7 @@ func SessionStart(fn HandlerFunc) HandlerFunc {
 		}
 		ctx.Authorization = _extractAuthorization(req)
 		if ctx.Session, err = _extractSession(req, ctx); err != nil {
+			RecoverFromBadCookie(res)
 			SendErrorResult(res, err)
 			return
 		}
@@ -71,6 +72,8 @@ func SessionStart(fn HandlerFunc) HandlerFunc {
 			SendErrorResult(res, err)
 			return
 		}
+		ctx.Languages = _extractLanguages(req)
+
 		fn(ctx, res, req)
 	})
 }
@@ -137,7 +140,7 @@ func CanManageShare(fn HandlerFunc) HandlerFunc {
 			SendErrorResult(res, err)
 			return
 		}
-		if s.Backend == GenerateID(ctx) {
+		if s.Backend == GenerateID(ctx.Session) {
 			fn(ctx, res, req)
 			return
 		}
@@ -155,7 +158,7 @@ func CanManageShare(fn HandlerFunc) HandlerFunc {
 			return
 		}
 
-		id := GenerateID(ctx)
+		id := GenerateID(ctx.Session)
 		if s.Backend == id {
 			if s.CanShare == true {
 				fn(ctx, res, req)
@@ -280,7 +283,7 @@ func _extractSession(req *http.Request, ctx *App) (map[string]string, error) {
 		str, err = DecryptString(SECRET_KEY_DERIVATE_FOR_USER, ctx.Share.Auth)
 		if err != nil {
 			// This typically happen when changing the secret key
-			return session, nil
+			return session, ErrNotAuthorized
 		}
 		err = json.Unmarshal([]byte(str), &session)
 		if IsDirectory(ctx.Share.Path) {
@@ -308,7 +311,7 @@ func _extractSession(req *http.Request, ctx *App) (map[string]string, error) {
 	if err != nil {
 		// This typically happen when changing the secret key
 		Log.Debug("middleware::session decrypt error '%s'", err.Error())
-		return session, nil
+		return session, ErrNotAuthorized
 	}
 	if err = json.Unmarshal([]byte(str), &session); err != nil {
 		return session, err
@@ -326,4 +329,16 @@ func _extractSession(req *http.Request, ctx *App) (map[string]string, error) {
 
 func _extractBackend(req *http.Request, ctx *App) (IBackend, error) {
 	return model.NewBackend(ctx, ctx.Session)
+}
+
+func _extractLanguages(req *http.Request) []string {
+	var lng = []string{}
+	for _, lngs := range strings.Split(req.Header.Get("Accept-Language"), ",") {
+		chunks := strings.Split(lngs, ";")
+		if len(chunks) == 0 {
+			continue
+		}
+		lng = append(lng, chunks[0])
+	}
+	return lng
 }

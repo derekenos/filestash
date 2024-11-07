@@ -5,7 +5,7 @@ import { ApplicationError } from "../../lib/error.js";
 import { transition, animate, zoomIn, slideXOut, slideXIn } from "../../lib/animate.js";
 import bcrypt from "../../lib/vendor/bcrypt.js";
 import { CSS } from "../../helpers/loader.js";
-import modal from "../../components/modal.js";
+import { createModal, MODAL_RIGHT_BUTTON } from "../../components/modal.js";
 import { get as getConfig } from "../../model/config.js";
 import ctrlError from "../ctrl_error.js";
 
@@ -14,13 +14,13 @@ import WithShell from "./decorator_sidemenu.js";
 import { cssHideMenu } from "./animate.js";
 import { formObjToJSON$ } from "./helper_form.js";
 import { getDeps } from "./model_setup.js";
-import { authenticate$ } from "./model_admin_session.js";
+import { authenticate$, isAdmin$ } from "./model_admin_session.js";
 
 import "../../components/icon.js";
 
 const stepper$ = new rxjs.BehaviorSubject(1);
 
-export default async function(render) {
+export default setupHOC(async function(render) {
     const $page = createElement(`
         <div class="component_setup">
            <div data-bind="multistep-form"></div>
@@ -38,7 +38,18 @@ export default async function(render) {
         rxjs.tap((ctrl) => ctrl(createRender(qs($page, "[data-bind=\"multistep-form\"]")))),
         rxjs.catchError(ctrlError(render)),
     ));
-};
+});
+
+function setupHOC(ctrlWrapped) {
+    const ctrlGoAdmin = () => location.href = "/admin/";
+    return (render) => {
+        effect(isAdmin$().pipe(
+            rxjs.map((isAdmin) => isAdmin ? ctrlWrapped : ctrlGoAdmin),
+            rxjs.tap((ctrl) => ctrl(render)),
+            rxjs.catchError(ctrlError(render)),
+        ));
+    };
+}
 
 function componentStep1(render) {
     const $page = createElement(`
@@ -63,6 +74,8 @@ function componentStep1(render) {
         enter: zoomIn(1.2),
         timeLeave: 0
     }));
+
+    qs($page, "input").focus();
 
     // feature: form handling
     effect(rxjs.fromEvent(qs($page, "form"), "submit").pipe(
@@ -111,6 +124,7 @@ function componentStep2(render) {
 
     // feature: show state of dependencies
     effect(getDeps().pipe(
+        rxjs.first(),
         rxjs.mergeMap((deps) => deps),
         rxjs.map(({ name_success, name_failure, pass, severe, message }) => ({
             className: (severe ? "severe" : "") + " " + (pass ? "yes" : "no"),
@@ -138,41 +152,52 @@ function componentStep2(render) {
     ));
 
     // feature: telemetry popup
-    const $modal = createElement(`
-        <div>
-            <p style="text-align: justify;">
-                Help making this software better by sending crash reports and anonymous usage statistics
-            </p>
-            <form style="font-size: 0.9em; margin-top: 10px;">
-                <label>
-                    <div class="component_checkbox">
-                        <input type="checkbox">
-                        <span class="indicator"></span>
-                    </div>
-                    I accept but the data is not to be share with any third party
-                </label>
-            </form>
-        </div>
-    `);
+    const componentTelemetryPopup = (render) => {
+        const $modal = createElement(`
+            <div>
+                <p style="text-align: justify;">
+                    Help making this software better by sending crash reports and anonymous usage statistics
+                </p>
+                <form style="font-size: 0.9em; margin-top: 10px; line-height: 1rem;">
+                    <label>
+                        <div class="component_checkbox">
+                            <input type="checkbox">
+                            <span class="indicator"></span>
+                        </div>
+                        I accept but the data is not to be share with any third party
+                    </label>
+                </form>
+            </div>
+        `);
+        const ret = new rxjs.Subject();
+        const $checkbox = qs($modal, `[type="checkbox"]`);
+        const close = render($modal, (id) => {
+            if (id !== MODAL_RIGHT_BUTTON) {
+                ret.next(false);
+                ret.complete();
+                return ret.toPromise();
+            }
+            ret.next($checkbox.checked);
+            ret.complete();
+            return ret.toPromise();
+        });
+        $checkbox.oninput = (e) => {
+            if (!e.target.checked) return;
+            close(MODAL_RIGHT_BUTTON);
+        };
+        return ret.toPromise();
+    };
     effect(getAdminConfig().pipe(
         reshapeConfigBeforeSave,
         rxjs.delay(300),
         rxjs.filter((config) => config["log"]["telemetry"] !== true),
-        rxjs.mergeMap((config) => new Promise((next) => {
-            modal.open($modal, {
-                withButtonsRight: "OK",
-                onQuit: () => next(config),
-            });
-            qs($modal, "[type=\"checkbox\"]").oninput = (e) => {
-                if (!e.target.checked) return;
-                qs(document.body, "component-modal > div").click();
-            };
-        })),
-        rxjs.filter(() => qs($modal, "[type=\"checkbox\"]").checked),
-        rxjs.map((config) => {
-            config["log"]["telemetry"] = true;
+        rxjs.mergeMap(async(config) => {
+            const enabled = await componentTelemetryPopup(createModal({ withButtonsRight: "OK" }));
+            if (enabled === false) return null;
+            config["log"]["telemetry"] = enabled;
             return config;
         }),
+        rxjs.filter((config) => !!config),
         saveConfig(),
     ));
 }

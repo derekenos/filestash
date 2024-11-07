@@ -22,7 +22,7 @@ type SearchProcess struct {
 }
 
 func (this *SearchProcess) HintLs(app *App, path string) *SearchIndexer {
-	id := GenerateID(app)
+	id := GenerateID(app.Session)
 
 	// try to find the search indexer among the existing ones
 	this.mu.RLock()
@@ -63,6 +63,18 @@ func (this *SearchProcess) HintLs(app *App, path string) *SearchIndexer {
 	}
 	// instantiate the new indexer
 	s := NewSearchIndexer(id, app.Backend)
+	defer func() {
+		// recover from panic if one occurred. Set err to nil otherwise.
+		if recover() != nil {
+			name := "na"
+			for _, el := range app.Backend.LoginForm().Elmnts {
+				if el.Name == "type" {
+					name = el.Value.(string)
+				}
+			}
+			Log.Error("plg_search_sqlitefs::panic backend=\"%s\"", name)
+		}
+	}()
 	v := reflect.ValueOf(app.Backend).Elem().FieldByName("Context")
 	if v.IsValid() && v.CanSet() {
 		// prevent context expiration which is often default as r.Context()
@@ -82,7 +94,7 @@ func (this *SearchProcess) HintLs(app *App, path string) *SearchIndexer {
 }
 
 func (this *SearchProcess) HintRm(app *App, path string) {
-	id := GenerateID(app)
+	id := GenerateID(app.Session)
 	this.mu.RLock()
 	for i := len(this.idx) - 1; i >= 0; i-- {
 		if id == this.idx[i].Id {
@@ -94,7 +106,7 @@ func (this *SearchProcess) HintRm(app *App, path string) {
 }
 
 func (this *SearchProcess) HintFile(app *App, path string) {
-	id := GenerateID(app)
+	id := GenerateID(app.Session)
 	this.mu.RLock()
 	for i := len(this.idx) - 1; i >= 0; i-- {
 		if id == this.idx[i].Id {

@@ -5,6 +5,7 @@ import { qs, qsa } from "../../lib/dom.js";
 import { ApplicationError } from "../../lib/error.js";
 import { formTmpl } from "../../components/form.js";
 import { generateSkeleton } from "../../components/skeleton.js";
+import ctrlError from "../ctrl_error.js";
 
 import {
     getState,
@@ -35,7 +36,7 @@ export default async function(render) {
     const init$ = getMiddlewareAvailable().pipe(
         rxjs.first(),
         rxjs.map((specs) => Object.keys(specs).map((label) => createElement(`
-            <div is="box-item" data-label="${label}"></div>
+            <box-item data-label="${label}"></box-item>
         `))),
         rxjs.tap(() => {
             qs($page, "h2").classList.remove("hidden");
@@ -50,7 +51,7 @@ export default async function(render) {
     effect(init$.pipe(
         rxjs.concatMap(() => getMiddlewareEnabled()),
         rxjs.filter((backend) => !!backend),
-        rxjs.tap((backend) => qsa($page, `[is="box-item"]`).forEach(($button) => {
+        rxjs.tap((backend) => qsa($page, "box-item").forEach(($button) => {
             $button.getAttribute("data-label") === backend
                 ? $button.classList.add("active")
                 : $button.classList.remove("active");
@@ -93,6 +94,7 @@ export default async function(render) {
                 }));
                 $idp.classList.add("hidden");
                 $idp.setAttribute("id", key);
+                if (Object.keys(idpSpec).length === 0) $idp.style.display = "none";
                 idps.push($idp);
             }
             return idps;
@@ -265,4 +267,5 @@ export default async function(render) {
 const saveMiddleware = () => rxjs.pipe(
     rxjs.mergeMap(() => getState()),
     saveConfig(),
+    rxjs.catchError(ctrlError()),
 );
